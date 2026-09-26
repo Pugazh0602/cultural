@@ -1,8 +1,16 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export const KineticHero3D: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [modelStatus, setModelStatus] = useState<string>('Loading /models/shoe.glb...');
+  const [isGlbActive, setIsGlbActive] = useState<boolean>(false);
+  const [showInfo, setShowInfo] = useState<boolean>(false);
+
+  // Store sneaker group ref so we can dynamically swap loaded GLTF models
+  const sneakerGroupRef = useRef<THREE.Group | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -50,7 +58,7 @@ export const KineticHero3D: React.FC = () => {
       emissive: 0x051a22,
       specular: 0x38c6ec,
       shininess: 90,
-      wireframe: false
+      wireframe: false,
     });
     const ballMesh = new THREE.Mesh(ballGeo, ballMat);
 
@@ -68,41 +76,96 @@ export const KineticHero3D: React.FC = () => {
     ballMesh.position.set(-2.2, 0.4, 0.5);
     masterGroup.add(ballMesh);
 
-    // 2. Futuristic Streetwear Geometric Sneaker Form
+    // 2. Futuristic Sneaker Group
     const sneakerGroup = new THREE.Group();
+    sneakerGroup.position.set(2.2, -0.2, 0.8);
+    sneakerGroup.rotation.set(0.2, -0.6, 0.3);
+    masterGroup.add(sneakerGroup);
+    sneakerGroupRef.current = sneakerGroup;
 
-    // Sole base
+    // Procedural Fallback Mesh for Sneaker
+    const proceduralShoe = new THREE.Group();
     const soleGeo = new THREE.BoxGeometry(2.4, 0.35, 0.9);
     const soleMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 80 });
     const sole = new THREE.Mesh(soleGeo, soleMat);
-    sneakerGroup.add(sole);
+    proceduralShoe.add(sole);
 
-    // Upper body
     const upperGeo = new THREE.CylinderGeometry(0.42, 0.52, 1.2, 16);
     const upperMat = new THREE.MeshPhongMaterial({ color: 0x181818, shininess: 40 });
     const upper = new THREE.Mesh(upperGeo, upperMat);
     upper.rotation.z = Math.PI / 5;
     upper.position.set(-0.3, 0.6, 0);
-    sneakerGroup.add(upper);
+    proceduralShoe.add(upper);
 
-    // Toe box
     const toeGeo = new THREE.SphereGeometry(0.48, 16, 16);
     const toeMat = new THREE.MeshPhongMaterial({ color: 0x38c6ec, shininess: 60 });
     const toe = new THREE.Mesh(toeGeo, toeMat);
     toe.scale.set(1.4, 0.65, 0.95);
     toe.position.set(0.65, 0.3, 0);
-    sneakerGroup.add(toe);
+    proceduralShoe.add(toe);
 
-    // Heel counter
     const heelGeo = new THREE.BoxGeometry(0.7, 0.8, 0.85);
     const heelMat = new THREE.MeshPhongMaterial({ color: 0x0db5ed, shininess: 70 });
     const heel = new THREE.Mesh(heelGeo, heelMat);
     heel.position.set(-0.75, 0.55, 0);
-    sneakerGroup.add(heel);
+    proceduralShoe.add(heel);
 
-    sneakerGroup.position.set(2.2, -0.2, 0.8);
-    sneakerGroup.rotation.set(0.2, -0.6, 0.3);
-    masterGroup.add(sneakerGroup);
+    sneakerGroup.add(proceduralShoe);
+
+    // Load custom GLB shoe model from /models/shoe.glb
+    const loader = new GLTFLoader();
+    loader.load(
+      '/models/shoe.glb',
+      (gltf) => {
+        try {
+          const loadedModel = gltf.scene;
+
+          // Compute bounding box to normalize scale
+          const box = new THREE.Box3().setFromObject(loadedModel);
+          const size = box.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const scale = maxDim > 0 ? 2.5 / maxDim : 1;
+          loadedModel.scale.set(scale, scale, scale);
+
+          // Center the model
+          const center = box.getCenter(new THREE.Vector3());
+          loadedModel.position.x = -center.x * scale;
+          loadedModel.position.y = -center.y * scale;
+          loadedModel.position.z = -center.z * scale;
+
+          // Apply high-tech material enhancements
+          loadedModel.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const mesh = child as THREE.Mesh;
+              mesh.castShadow = true;
+              mesh.receiveShadow = true;
+              if (!mesh.material || (mesh.material as any).color) {
+                mesh.material = new THREE.MeshStandardMaterial({
+                  color: 0x111111,
+                  metalness: 0.8,
+                  roughness: 0.25,
+                  emissive: 0x051a22,
+                });
+              }
+            }
+          });
+
+          // Replace procedural mesh with loaded GLB model
+          sneakerGroup.clear();
+          sneakerGroup.add(loadedModel);
+          setIsGlbActive(true);
+          setModelStatus('shoe.glb mounted');
+          console.log('[ThreeJS] Successfully mounted shoe.glb');
+        } catch (err) {
+          console.warn('[ThreeJS] GLB model setup notice:', err);
+        }
+      },
+      undefined,
+      (error) => {
+        console.warn('[ThreeJS] /models/shoe.glb loading note (procedural active):', error);
+        setModelStatus('Procedural kinetic shoe active');
+      }
+    );
 
     // 3. Central Quantum Gyroscope
     const gyroGroup = new THREE.Group();
@@ -255,6 +318,49 @@ export const KineticHero3D: React.FC = () => {
     };
   }, []);
 
+  // Handle local GLB upload for instant testing
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !sneakerGroupRef.current) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const contents = event.target?.result;
+      if (!contents) return;
+
+      const loader = new GLTFLoader();
+      loader.parse(
+        contents as ArrayBuffer,
+        '',
+        (gltf) => {
+          const loadedModel = gltf.scene;
+          const box = new THREE.Box3().setFromObject(loadedModel);
+          const size = box.getSize(new THREE.Vector3());
+          const maxDim = Math.max(size.x, size.y, size.z);
+          const scale = maxDim > 0 ? 2.5 / maxDim : 1;
+          loadedModel.scale.set(scale, scale, scale);
+
+          const center = box.getCenter(new THREE.Vector3());
+          loadedModel.position.x = -center.x * scale;
+          loadedModel.position.y = -center.y * scale;
+          loadedModel.position.z = -center.z * scale;
+
+          if (sneakerGroupRef.current) {
+            sneakerGroupRef.current.clear();
+            sneakerGroupRef.current.add(loadedModel);
+          }
+          setIsGlbActive(true);
+          setModelStatus(`Loaded ${file.name}`);
+        },
+        (error) => {
+          console.error('Failed to parse uploaded GLB:', error);
+          alert('Failed to parse GLB file. Please check file formatting.');
+        }
+      );
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   return (
     <div className="relative w-full h-[460px] md:h-[520px] rounded-3xl overflow-hidden bg-black shadow-2xl p-1 select-none">
       {/* Three.js Canvas Container */}
@@ -262,15 +368,65 @@ export const KineticHero3D: React.FC = () => {
 
       {/* Orbit Active Badge */}
       <div className="absolute top-5 left-5 z-20 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/75 backdrop-blur-md text-white border border-white/10 shadow-lg">
-        <span className="w-2.5 h-2.5 rounded-full bg-[#2A9A30] animate-pulse"></span>
-        <span className="text-[12px] font-semibold tracking-wider text-[#0db5ed] uppercase">KINETIC 3D LAB</span>
-        <span className="text-[12px] text-[#b8b8b8]">· Orbit Active</span>
+        <span className="w-2.5 h-2.5 rounded-full bg-[#2A9A30] animate-pulse" />
+        <span className="text-[12px] font-semibold tracking-wider text-[#0db5ed] uppercase">
+          KINETIC 3D LAB
+        </span>
+        <span className="text-[12px] text-[#b8b8b8]">· {modelStatus}</span>
       </div>
+
+      {/* Model Replacement Controls */}
+      <div className="absolute top-5 right-5 z-20 flex items-center gap-2">
+        <input
+          type="file"
+          ref={fileInputRef}
+          accept=".glb,.gltf"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          title="Upload / Replace GLB 3D shoe model"
+          className="px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-white text-[11px] font-semibold uppercase hover:bg-[#0db5ed] hover:text-black transition-colors border border-white/15 flex items-center gap-1.5 cursor-pointer"
+        >
+          <span className="material-symbols-outlined text-[14px]">view_in_ar</span>
+          <span>Swap GLB</span>
+        </button>
+
+        <button
+          onClick={() => setShowInfo(!showInfo)}
+          title="GLB Model Import Instructions"
+          className="w-7 h-7 rounded-full bg-white/10 backdrop-blur-md text-white text-[11px] flex items-center justify-center hover:bg-white hover:text-black transition-colors border border-white/15 cursor-pointer"
+        >
+          <span className="material-symbols-outlined text-[16px]">info</span>
+        </button>
+      </div>
+
+      {/* GLB Helper Tooltip */}
+      {showInfo && (
+        <div className="absolute top-16 right-5 z-30 w-72 p-4 bg-black/95 backdrop-blur-md text-white rounded-2xl border border-white/20 shadow-2xl text-xs space-y-2 animate-in fade-in">
+          <div className="flex justify-between items-center font-bold text-[#0db5ed] uppercase">
+            <span>3D GLB Model Ready</span>
+            <button onClick={() => setShowInfo(false)} className="text-gray-400 hover:text-white">
+              <span className="material-symbols-outlined text-[14px]">close</span>
+            </button>
+          </div>
+          <p className="text-gray-300 leading-relaxed text-[11px]">
+            Dummy model is linked at <code className="text-[#0db5ed] bg-white/10 px-1 py-0.5 rounded">public/models/shoe.glb</code>.
+          </p>
+          <p className="text-gray-300 leading-relaxed text-[11px]">
+            You can drop your actual 3D shoe <code className="text-white">.glb</code> file into <code className="text-[#0db5ed] bg-white/10 px-1 py-0.5 rounded">public/models/shoe.glb</code>, or use the <strong>Swap GLB</strong> button to test in real-time.
+          </p>
+        </div>
+      )}
 
       {/* Prompt Instruction Badge */}
       <div className="absolute bottom-5 right-5 z-20 flex items-center gap-2">
         <div className="px-3.5 py-1.5 rounded-full bg-black/80 backdrop-blur-md text-white flex items-center gap-2 border border-white/10 shadow-lg">
-          <span className="material-symbols-outlined text-[16px] text-[#0db5ed] animate-spin">sync</span>
+          <span className="material-symbols-outlined text-[16px] text-[#0db5ed] animate-spin">
+            sync
+          </span>
           <span className="text-[11px] font-medium uppercase tracking-wider text-slate-200">
             Drag to Inspect Garment Kinetics
           </span>

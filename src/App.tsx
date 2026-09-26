@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { KineticHero3D } from './components/KineticHero3D';
 import { ProductCard } from './components/ProductCard';
@@ -10,6 +10,8 @@ import { ArticleModal } from './components/ArticleModal';
 import { SearchModal } from './components/SearchModal';
 import { MembershipModal } from './components/MembershipModal';
 import { CheckoutModal } from './components/CheckoutModal';
+import { AddItemModal } from './components/AddItemModal';
+import { SportsChatbot } from './components/SportsChatbot';
 import { Toast } from './components/Toast';
 import { Footer } from './components/Footer';
 
@@ -26,8 +28,42 @@ export default function App() {
   // Navigation active tab
   const [activeTab, setActiveTab] = useState<string>('shop');
 
-  // Products & Filtering
+  // Products from MongoDB & Filtering
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
+  const [isAddItemOpen, setIsAddItemOpen] = useState(false);
+  const [dbConnected, setDbConnected] = useState<boolean>(false);
+  const [dbDiagnostic, setDbDiagnostic] = useState<string>('');
+  const [showDbModal, setShowDbModal] = useState<boolean>(false);
+
+  // Fetch items stored in MongoDB on mount & check status
+  useEffect(() => {
+    async function loadDbItems() {
+      try {
+        const [itemsRes, healthRes] = await Promise.allSettled([
+          fetch('/api/items'),
+          fetch('/api/health'),
+        ]);
+
+        if (itemsRes.status === 'fulfilled' && itemsRes.value.ok) {
+          const data = await itemsRes.value.json();
+          if (data.success && Array.isArray(data.items) && data.items.length > 0) {
+            setProducts(data.items);
+          }
+        }
+
+        if (healthRes.status === 'fulfilled' && healthRes.value.ok) {
+          const healthData = await healthRes.value.json();
+          const dbStatus = healthData?.database;
+          setDbConnected(Boolean(dbStatus?.isMongoConnected));
+          setDbDiagnostic(dbStatus?.diagnostic || '');
+        }
+      } catch (err) {
+        console.warn('Backend MongoDB items endpoint notice:', err);
+      }
+    }
+    loadDbItems();
+  }, []);
 
   // Cart State (Initialized with the 2 items from design reference)
   const [cartItems, setCartItems] = useState<CartItem[]>([
@@ -165,8 +201,8 @@ export default function App() {
     setTransmissionHandle('');
   };
 
-  // Filtered Products
-  const filteredProducts = INITIAL_PRODUCTS.filter((prod) => {
+  // Filtered Products from MongoDB
+  const filteredProducts = products.filter((prod) => {
     if (selectedFilter === 'all') return true;
     if (selectedFilter === 'limited') return prod.badgeType === 'limited' || prod.badgeType === 'experimental';
     return prod.category === selectedFilter;
@@ -286,34 +322,58 @@ export default function App() {
                 <span className="text-[11px] font-bold uppercase tracking-widest text-[#6d7980]">
                   SEASON 04 ARCHIVE
                 </span>
+                <span className="text-gray-300">·</span>
+                <button
+                  type="button"
+                  onClick={() => setShowDbModal(true)}
+                  title="Click to view MongoDB connection status & details"
+                  className="inline-flex items-center gap-1.5 text-[10px] font-mono text-[#006687] hover:text-black bg-[#f3f3f3] hover:bg-[#e8e8e8] px-2.5 py-0.5 rounded-full transition-colors cursor-pointer border border-black/5"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${dbConnected ? 'bg-[#2A9A30]' : 'bg-[#0db5ed]'} animate-pulse`} />
+                  <span>{dbConnected ? 'MongoDB Live' : 'Storage Active'} ({products.length} Items)</span>
+                  <span className="material-symbols-outlined text-[12px]">info</span>
+                </button>
               </div>
               <h2 className="text-4xl sm:text-5xl uppercase text-black font-semibold tracking-tight">
                 BUILT TO MOVE
               </h2>
             </div>
 
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-2 md:pb-0">
-              {[
-                { id: 'all', label: 'All' },
-                { id: 'outerwear', label: 'Outerwear' },
-                { id: 'performance', label: 'Performance' },
-                { id: 'footwear', label: 'Footwear' },
-                { id: 'limited', label: 'Limited' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setSelectedFilter(tab.id)}
-                  type="button"
-                  className={`px-4 py-1.5 rounded-full text-[13px] font-semibold uppercase transition-colors cursor-pointer ${
-                    selectedFilter === tab.id
-                      ? 'bg-black text-white'
-                      : 'bg-[#eeeeee] text-[#3d484f] hover:bg-[#e2e2e2]'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            {/* Filter Tabs & Add Item Action */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-2 md:pb-0">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'outerwear', label: 'Outerwear' },
+                  { id: 'performance', label: 'Performance' },
+                  { id: 'footwear', label: 'Footwear' },
+                  { id: 'limited', label: 'Limited' },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setSelectedFilter(tab.id)}
+                    type="button"
+                    className={`px-4 py-1.5 rounded-full text-[13px] font-semibold uppercase transition-colors cursor-pointer ${
+                      selectedFilter === tab.id
+                        ? 'bg-black text-white'
+                        : 'bg-[#eeeeee] text-[#3d484f] hover:bg-[#e2e2e2]'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Add Prototype Item to MongoDB Button */}
+              <button
+                onClick={() => setIsAddItemOpen(true)}
+                className="px-3.5 py-1.5 rounded-full bg-[#006687] text-white text-[12px] font-semibold uppercase tracking-tight hover:bg-black transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                type="button"
+                title="Add new prototype item to MongoDB"
+              >
+                <span className="material-symbols-outlined text-[16px]">add</span>
+                <span>Add Lab Item</span>
+              </button>
             </div>
           </div>
 
@@ -865,7 +925,7 @@ export default function App() {
         athlete={selectedAthlete}
         onClose={() => setSelectedAthlete(null)}
         onSelectGear={(gearName) => {
-          const matchedProd = INITIAL_PRODUCTS.find((p) => p.title === gearName);
+          const matchedProd = products.find((p) => p.title === gearName);
           if (matchedProd) {
             setQuickViewProduct(matchedProd);
           } else {
@@ -884,7 +944,7 @@ export default function App() {
       <SearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
-        products={INITIAL_PRODUCTS}
+        products={products}
         athletes={ATHLETES_DATA}
         events={FIELD_EVENTS}
         articles={ARTICLES_DATA}
@@ -911,6 +971,94 @@ export default function App() {
           showToast('Order confirmed! Tracking dispatch credentials generated.');
         }}
       />
+
+      {/* Add New Item to MongoDB Modal */}
+      <AddItemModal
+        isOpen={isAddItemOpen}
+        onClose={() => setIsAddItemOpen(false)}
+        onItemCreated={(newProduct) => {
+          setProducts((prev) => [newProduct, ...prev]);
+          showToast(`Saved ${newProduct.title} to MongoDB database!`);
+        }}
+      />
+
+      {/* Sports & Field Trials AI Chatbot powered by Groq LLM */}
+      <SportsChatbot />
+
+      {/* Database Status & Atlas Guide Modal */}
+      {showDbModal && (
+        <div className="fixed inset-0 bg-black/75 z-[130] backdrop-blur-md flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 text-black">
+            <div className="flex justify-between items-start border-b border-[#ededed] pb-4">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-widest text-[#006687] block">
+                  SYSTEM STORAGE STATUS
+                </span>
+                <h3 className="text-xl font-bold uppercase tracking-tight text-black mt-1">
+                  Database Architecture
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowDbModal(false)}
+                className="w-8 h-8 rounded-full bg-[#eeeeee] flex items-center justify-center text-black hover:bg-black hover:text-white transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-[#f3f3f3] space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-gray-600 uppercase">Connection Mode</span>
+                  <span className={`px-2 py-0.5 rounded-full font-bold uppercase text-[10px] ${
+                    dbConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {dbConnected ? 'MongoDB Live Cluster' : 'Resilient High-Speed Storage'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-gray-600 uppercase">Available Lab Items</span>
+                  <span className="font-mono font-bold text-black">{products.length} Items</span>
+                </div>
+                {dbDiagnostic && (
+                  <p className="text-[11px] text-gray-600 pt-1 border-t border-black/5 leading-relaxed">
+                    {dbDiagnostic}
+                  </p>
+                )}
+              </div>
+
+              {!dbConnected && (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs space-y-2 text-amber-950">
+                  <div className="flex items-center gap-1.5 font-bold uppercase tracking-tight text-amber-900">
+                    <span className="material-symbols-outlined text-[16px]">info</span>
+                    <span>MongoDB Atlas Setup Guide</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    If you configured MongoDB Atlas and see an SSL alert 80, Atlas requires adding the client IP to your IP Access List:
+                  </p>
+                  <ol className="list-decimal pl-4 space-y-1 text-[11px]">
+                    <li>Open your <strong>MongoDB Atlas Console</strong> at <code className="bg-amber-100 px-1 rounded">cloud.mongodb.com</code></li>
+                    <li>In the left sidebar under Security, click <strong>Network Access</strong></li>
+                    <li>Click <strong>Add IP Address</strong></li>
+                    <li>Select <strong>Allow Access from Anywhere</strong> (<code className="bg-amber-100 px-1 rounded">0.0.0.0/0</code>) and confirm</li>
+                  </ol>
+                  <p className="text-[11px] text-amber-800 italic pt-1">
+                    The app seamlessly maintains all items, additions, and updates in resilient storage without interruption.
+                  </p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowDbModal(false)}
+                className="w-full py-3 rounded-full bg-black text-white text-xs font-bold uppercase tracking-wider hover:bg-[#0db5ed] hover:text-black transition-colors cursor-pointer"
+              >
+                Close Status
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
